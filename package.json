@@ -4,18 +4,26 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n site,api -c magenta,cyan \"vite\" \"npm:dev:api\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:site": "vite",
+    "dev:api": "node --watch --env-file-if-exists=.env server/index.js",
+    "db:setup": "node --env-file-if-exists=.env server/seed.js",
+    "admin:create": "node --env-file-if-exists=.env server/create-admin.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "express": "^5.3.0",
     "lucide-react": "^0.383.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "recharts": "^2.15.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^10.0.6",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "vite": "^5.2.0"

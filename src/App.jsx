@@ -1,5 +1,18 @@
-import React, { useState, useMemo } from "react";
-import { Search, Heart, ShoppingBag, X, Plus, Minus } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Search, Heart, ShoppingBag, X, Plus, Minus, UserRound } from "lucide-react";
+import { CATEGORIES, PRODUCTS as LOCAL_PRODUCTS } from "./data/catalog.js";
+import { useAuth } from "./auth.jsx";
+
+const CART_KEY = "garde-robe-cart";
+
+// Le panier survit au passage par la page compte (stockage local du navigateur).
+function loadCart() {
+  try {
+    return JSON.parse(localStorage.getItem(CART_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
 
 const INK = "#22201D";
 const IVORY = "#F5F2ED";
@@ -42,51 +55,6 @@ function CategoryIcon({ category, size = 40 }) {
     </svg>
   );
 }
-
-const CATEGORIES = [
-  "Chaussures",
-  "Godasses",
-  "Habits Enfants",
-  "Jeans",
-  "Robes",
-  "Smokings",
-  "T-shirts",
-];
-
-const PRODUCT_FILES = {
-  "Chaussures": ["Air Jordan N.jpg", "Air Jordan.jpg", "Air Max.jpg", "Casual.jpg", "Mocassin B.jpg", "Mocassin.jpg", "NIKE AIR FORCE .jpg", "Nike Air Force 1 i.jpg", "Pointinini B.jpg", "Pointinini.jpg", "Sebastian Leather.jpg", "Timberland.jpg", "Under amour.jpg"],
-  "Godasses": ["Adidas Chaos.jpg", "Adidas G.jpg", "Adidas J.jpg", "Adidas.jpg", "Crazyfast.jpg", "Gold.jpg", "Green Mood.jpg", "Guayos.jpg", "Inspires Player .jpg", "Mercurial Vapor 17.jpg", "Nike B.jpg", "Nike P.jpg", "Nike R.jpg"],
-  "Habits Enfants": ["Ensemble 1.jpg", "Ensemble 2.jpg", "Ensemble 3.jpg", "Ensemble 4.jpg", "Ensemble 5.jpg", "Ensemble 6.jpg", "Ensemble 7.jpg", "Ensemble 8.jpg", "Ensemble 9.jpg", "Ensemble 10.jpg", "Ensemble 11.jpg", "Ensemble 12.jpg", "Ensemble 13.jpg"],
-  "Jeans": ["Bad Mood.jpg", "Baggui N.jpg", "Baggui.jpg", "Baggy.jpg", "Cool Break.jpg", "Essential.jpg", "Grayzzy.jpg", "Large.jpg", "Regular.jpg", "Skinny.jpg", "Stone.jpg", "Viral.jpg", "Wide Merge.jpg"],
-  "Robes": ["Beauty.jpg", "Elegant.jpg", "Glamour.jpg", "Luxury.jpg", "Mirage.jpg", "Princesse.jpg", "Rose Bonbon.jpg", "Violette M.jpg"],
-  "Smokings": ["Addict.jpg", "Atelier.jpg", "Black Tailor.jpg", "Bordeauxx.jpg", "Croisénoir.jpg", "Custom.jpg", "Hypper.jpg", "King.jpg", "Monster.jpg", "Riffer.jpg", "Smoking Fursac.jpg", "Smoking H.jpg", "Smoking Litan.jpg", "Von.jpg", "soot.jpg"],
-  "T-shirts": ["Black.jpg", "Décontracté.jpg", "Grphical.jpg", "Instagram.jpg", "Stylish.jpg", "Teen Boy.jpg", "White.jpg"],
-};
-
-const FOLDER_NAMES = {
-  "Chaussures": "chaussures",
-  "Smokings": "Smockings",
-  "T-shirts": "T-shirt",
-};
-const BASE_PRICES = {
-  "Chaussures": 95,
-  "Godasses": 110,
-  "Habits Enfants": 42,
-  "Jeans": 82,
-  "Robes": 115,
-  "Smokings": 240,
-  "T-shirts": 28,
-};
-
-const PRODUCTS = CATEGORIES.flatMap((category) =>
-  PRODUCT_FILES[category].map((file, index) => ({
-    id: `${category}-${index}`,
-    category,
-    name: file.replace(/\.jpg$/i, "").trim(),
-    price: BASE_PRICES[category] + (index % 4) * 5,
-    image: `/products/${FOLDER_NAMES[category] || category}/${file}`,
-  }))
-);
 
 function ProductCard({ product, onAdd, wished, onToggleWish }) {
   const { bg } = CAT_STYLE[product.category];
@@ -149,11 +117,67 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
-  const [cart, setCart] = useState([]);
+  const { user } = useAuth();
+  const [cart, setCart] = useState(loadCart);
   const [wishlist, setWishlist] = useState(new Set());
   const [newsletterSent, setNewsletterSent] = useState(false);
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterError, setNewsletterError] = useState("");
+  const [products, setProducts] = useState(LOCAL_PRODUCTS);
+  const [ordering, setOrdering] = useState(false);
+  const [orderMessage, setOrderMessage] = useState("");
+
+  // Catalogue depuis Neon via l'API ; on garde le catalogue local si l'API ne répond pas.
+  useEffect(() => {
+    fetch("/api/products")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((rows) => rows.length && setProducts(rows))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    } catch {}
+  }, [cart]);
+
+  async function subscribeNewsletter() {
+    setNewsletterError("");
+    try {
+      const r = await fetch("/api/newsletter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newsletterEmail }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Erreur");
+      setNewsletterSent(true);
+    } catch (e) {
+      setNewsletterError(e.message === "Email invalide" ? "Email invalide." : "Service indisponible, réessayez plus tard.");
+    }
+  }
+
+  async function placeOrder() {
+    setOrdering(true);
+    setOrderMessage("");
+    try {
+      const r = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: cart.map((i) => ({ id: i.id, qty: i.qty })) }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error);
+      setCart([]);
+      setOrderMessage(`Merci ! Commande n° ${data.orderId} enregistrée (${data.total} €).`);
+    } catch {
+      setOrderMessage("La commande n'a pas pu être enregistrée. Réessayez plus tard.");
+    } finally {
+      setOrdering(false);
+    }
+  }
 
   function addToCart(product) {
+    setOrderMessage("");
     setCart((prev) => {
       const existing = prev.find((i) => i.id === product.id);
       if (existing) {
@@ -185,12 +209,12 @@ export default function App() {
   }
 
   const filtered = useMemo(() => {
-    return PRODUCTS.filter((p) => {
+    return products.filter((p) => {
       const matchCat = activeCategory === "Tout" || p.category === activeCategory;
       const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
       return matchCat && matchSearch;
     });
-  }, [activeCategory, search]);
+  }, [products, activeCategory, search]);
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const cartTotal = cart.reduce((s, i) => s + i.qty * i.price, 0);
@@ -198,9 +222,6 @@ export default function App() {
   return (
     <div className="min-h-screen font-body" style={{ backgroundColor: IVORY, color: INK }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&display=swap');
-        .font-display { font-family: 'Fraunces', serif; }
-        .font-body { font-family: 'Work Sans', sans-serif; }
         @keyframes heroIn {
           from { opacity: 0; transform: translateY(14px); }
           to { opacity: 1; transform: translateY(0); }
@@ -239,6 +260,23 @@ export default function App() {
                   </span>
                 )}
               </button>
+              <a
+                href="#/compte"
+                aria-label={user ? `Mon compte (${user.name})` : "Se connecter"}
+                title={user ? `Connecté : ${user.name}` : "Se connecter / créer un compte"}
+                className="relative p-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              >
+                {user ? (
+                  <span
+                    className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] font-medium"
+                    style={{ backgroundColor: INK, color: IVORY }}
+                  >
+                    {user.name.charAt(0).toUpperCase()}
+                  </span>
+                ) : (
+                  <UserRound size={19} color={INK} />
+                )}
+              </a>
             </div>
           </div>
           {searchOpen && (
@@ -368,21 +406,28 @@ export default function App() {
             {newsletterSent ? (
               <p className="text-sm" style={{ color: INK }}>Merci, à bientôt.</p>
             ) : (
-              <div className="flex">
-                <input
-                  type="email"
-                  placeholder="Votre email"
-                  className="flex-1 text-sm px-3 py-2 border focus:outline-none"
-                  style={{ borderColor: "#DEDACF", backgroundColor: CARD }}
-                />
-                <button
-                  onClick={() => setNewsletterSent(true)}
-                  className="text-sm px-4 focus:outline-none focus-visible:ring-2"
-                  style={{ backgroundColor: INK, color: IVORY }}
-                >
-                  Envoyer
-                </button>
-              </div>
+              <>
+                <div className="flex">
+                  <input
+                    type="email"
+                    placeholder="Votre email"
+                    value={newsletterEmail}
+                    onChange={(e) => setNewsletterEmail(e.target.value)}
+                    className="flex-1 text-sm px-3 py-2 border focus:outline-none"
+                    style={{ borderColor: "#DEDACF", backgroundColor: CARD }}
+                  />
+                  <button
+                    onClick={subscribeNewsletter}
+                    className="text-sm px-4 focus:outline-none focus-visible:ring-2"
+                    style={{ backgroundColor: INK, color: IVORY }}
+                  >
+                    Envoyer
+                  </button>
+                </div>
+                {newsletterError && (
+                  <p className="text-xs mt-2" style={{ color: "#7A2E2E" }}>{newsletterError}</p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -410,10 +455,15 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {orderMessage && (
+                <p className="text-sm" style={{ color: INK }}>{orderMessage}</p>
+              )}
               {cart.length === 0 ? (
-                <p className="text-sm" style={{ color: "#8A8578" }}>
-                  Votre panier est vide pour le moment.
-                </p>
+                !orderMessage && (
+                  <p className="text-sm" style={{ color: "#8A8578" }}>
+                    Votre panier est vide pour le moment.
+                  </p>
+                )
               ) : (
                 cart.map((item) => (
                   <div key={item.id} className="flex gap-3">
@@ -461,10 +511,12 @@ export default function App() {
                   <span style={{ color: INK }}>{cartTotal} €</span>
                 </div>
                 <button
-                  className="w-full text-sm py-3 focus:outline-none focus-visible:ring-2"
+                  onClick={placeOrder}
+                  disabled={ordering}
+                  className="w-full text-sm py-3 focus:outline-none focus-visible:ring-2 disabled:opacity-60"
                   style={{ backgroundColor: INK, color: IVORY }}
                 >
-                  Passer commande
+                  {ordering ? "Envoi…" : "Passer commande"}
                 </button>
               </div>
             )}

@@ -1,3 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.font-display { font-family: 'Fraunces', serif; }
+.font-body { font-family: 'Work Sans', sans-serif; }
