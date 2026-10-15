@@ -2,14 +2,19 @@ import express from "express";
 import { sql } from "./db.js";
 import { authRouter, loadUser, logActivity, EMAIL_RE } from "./auth.js";
 import { adminRouter } from "./admin.js";
+import { rateLimit, sameOriginOnly, securityHeaders } from "./security.js";
 
 // L'application Express est partagée : server/index.js l'écoute en local,
 // api/index.js l'expose comme fonction serverless sur Vercel.
 const app = express();
 // Derrière le proxy de Vercel : req.ip = vraie IP du visiteur (x-forwarded-for).
 app.set("trust proxy", true);
+app.disable("x-powered-by");
 
-app.use(express.json());
+app.use(securityHeaders);
+app.use(rateLimit({ windowMs: 60_000, max: 300 }));
+app.use(express.json({ limit: "20kb" }));
+app.use(sameOriginOnly);
 app.use(loadUser);
 
 // Toutes les routes /api exigent une base configurée, sauf /api/health.
@@ -77,8 +82,18 @@ app.post("/api/orders", requireDb, async (req, res) => {
 app.post("/api/newsletter", requireDb, async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Email invalide" });
+  // RGPD : consentement explicite (case à cocher), la date d'inscription en garde la preuve.
+  if (req.body?.consent !== true) return res.status(400).json({ error: "Consentement requis" });
   await sql`INSERT INTO newsletter_subscribers (email) VALUES (${email}) ON CONFLICT DO NOTHING`;
   res.status(201).json({ ok: true });
+});
+
+// Droit d'opposition : désinscription de la newsletter.
+app.post("/api/newsletter/unsubscribe", requireDb, async (req, res) => {
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Email invalide" });
+  await sql`DELETE FROM newsletter_subscribers WHERE email = ${email}`;
+  res.json({ ok: true });
 });
 
 app.use((err, req, res, next) => {

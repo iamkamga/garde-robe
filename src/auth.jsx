@@ -36,11 +36,14 @@ export function AuthProvider({ children }) {
     return user;
   };
 
-  const register = async (name, email, password) => {
-    const { user } = await api("/auth/register", { method: "POST", body: { name, email, password } });
+  const register = async (name, email, password, consent) => {
+    const { user } = await api("/auth/register", { method: "POST", body: { name, email, password, consent } });
     setUser(user);
     return user;
   };
+
+  // Après suppression du compte : la session est déjà détruite côté serveur.
+  const forget = () => setUser(null);
 
   const logout = async () => {
     await api("/auth/logout", { method: "POST" }).catch(() => {});
@@ -48,7 +51,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh, forget }}>
       {children}
     </AuthContext.Provider>
   );

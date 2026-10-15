@@ -64,3 +64,6 @@ CREATE TABLE IF NOT EXISTS activity_log (
 );
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+-- RGPD : date d'acceptation de la politique de confidentialité (preuve du consentement).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMPTZ;

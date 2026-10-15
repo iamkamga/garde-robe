@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { ArrowLeft, Eye, EyeOff, LayoutDashboard, LogOut } from "lucide-react";
+import { ArrowLeft, Download, Eye, EyeOff, LayoutDashboard, LogOut, Trash2 } from "lucide-react";
 import { useAuth } from "../auth.jsx";
 import { api, euros, dateTime } from "../lib/api.js";
 import { navigate } from "../lib/route.js";
 
 const INK = "#22201D";
 const IVORY = "#F5F2ED";
-const MUTED = "#8A8578";
+const MUTED = "#6E6A5F";
 const LINE = "#DEDACF";
 const ERROR = "#7A2E2E";
 
@@ -61,6 +61,7 @@ function AuthForms() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [consent, setConsent] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -69,7 +70,7 @@ function AuthForms() {
     setError("");
     setBusy(true);
     try {
-      const user = mode === "login" ? await login(email, password) : await register(name, email, password);
+      const user = mode === "login" ? await login(email, password) : await register(name, email, password, consent);
       navigate(user.role === "admin" ? "/admin" : "/");
     } catch (err) {
       setError(err.message);
@@ -122,7 +123,22 @@ function AuthForms() {
           autoComplete={mode === "login" ? "current-password" : "new-password"}
         />
         {mode === "register" && (
-          <p className="text-xs" style={{ color: MUTED }}>8 caractères minimum.</p>
+          <>
+            <p className="text-xs" style={{ color: MUTED }}>8 caractères minimum.</p>
+            <label className="flex items-start gap-2 text-sm" style={{ color: INK }}>
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                required
+                className="mt-1"
+              />
+              <span>
+                J'ai lu et j'accepte la{" "}
+                <a href="#/confidentialite" className="underline">politique de confidentialité</a>.
+              </span>
+            </label>
+          </>
         )}
         {error && (
           <p role="alert" className="text-sm" style={{ color: ERROR }}>{error}</p>
@@ -166,6 +182,71 @@ function ChangePassword() {
       )}
       <PrimaryButton type="submit" busy={busy}>Mettre à jour</PrimaryButton>
     </form>
+  );
+}
+
+function MyData() {
+  const { forget } = useAuth();
+  const [confirming, setConfirming] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function deleteAccount(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/auth/account", { method: "DELETE", body: { password } });
+      forget();
+      navigate("/");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm" style={{ color: MUTED }}>
+        Conformément au RGPD, vous pouvez récupérer ou supprimer vos données à tout moment.
+      </p>
+      <a
+        href="/api/auth/export"
+        download
+        className="inline-flex items-center gap-2 text-sm px-4 py-2.5 border w-full justify-center"
+        style={{ borderColor: INK, color: INK }}
+      >
+        <Download size={16} /> Télécharger mes données
+      </a>
+      {!confirming ? (
+        <button
+          onClick={() => setConfirming(true)}
+          className="inline-flex items-center gap-2 text-sm px-4 py-2.5 w-full justify-center"
+          style={{ color: ERROR }}
+        >
+          <Trash2 size={16} /> Supprimer mon compte
+        </button>
+      ) : (
+        <form onSubmit={deleteAccount} className="space-y-3 border p-4" style={{ borderColor: ERROR }}>
+          <p className="text-sm" style={{ color: INK }}>
+            Cette action est définitive. Vos commandes sont conservées pour nos obligations comptables, mais ne
+            seront plus liées à vous.
+          </p>
+          <Field label="Confirmez avec votre mot de passe" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+          {error && <p role="alert" className="text-sm" style={{ color: ERROR }}>{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setConfirming(false)} className="flex-1 text-sm py-2.5 border" style={{ borderColor: LINE, color: INK }}>
+              Annuler
+            </button>
+            <button type="submit" disabled={busy} className="flex-1 text-sm py-2.5 disabled:opacity-60" style={{ backgroundColor: ERROR, color: IVORY }}>
+              {busy ? "Suppression…" : "Supprimer"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }
 
@@ -239,6 +320,12 @@ function Account() {
         <section className="md:col-span-2">
           <h2 className="font-display text-xl mb-4" style={{ color: INK }}>Sécurité</h2>
           <ChangePassword />
+          {user.role !== "admin" && (
+            <>
+              <h2 className="font-display text-xl mt-10 mb-4" style={{ color: INK }}>Mes données</h2>
+              <MyData />
+            </>
+          )}
         </section>
       </div>
     </div>

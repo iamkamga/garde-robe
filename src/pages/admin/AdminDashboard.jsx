@@ -31,7 +31,7 @@ const THEME_CSS = `
 .adm {
   color-scheme: light;
   --bg: #F5F2ED; --surface: #FCFCFB; --surface-2: #EFEBE4; --row-hover: #F6F3EE; --line: #E3DED3;
-  --text: #22201D; --text-2: #5C5748; --muted: #8A8578;
+  --text: #22201D; --text-2: #5C5748; --muted: #6E6A5F;
   --accent: #22201D; --accent-fg: #F5F2ED;
   --series: #2a78d6; --grid: #ECE8E0;
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;

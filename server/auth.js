@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomBytes, scrypt, timingSafeEqual, createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { sql } from "./db.js";
+import { anonymizeIp } from "./security.js";
 
 const scryptAsync = promisify(scrypt);
 const COOKIE = "gr_session";
@@ -16,7 +17,7 @@ export async function hashPassword(password) {
   return `scrypt$${salt}$${hash.toString("hex")}`;
 }
 
-async function verifyPassword(password, stored) {
+export async function verifyPassword(password, stored) {
   const [, salt, hex] = stored.split("$");
   const expected = Buffer.from(hex, "hex");
   const actual = await scryptAsync(password, salt, expected.length);
@@ -59,7 +60,7 @@ async function startSession(req, res, userId) {
   await sql`
     INSERT INTO sessions (id, user_id, expires_at, ip, user_agent)
     VALUES (${hashToken(token)}, ${userId}, now() + make_interval(days => ${SESSION_DAYS}),
-            ${req.ip}, ${String(req.headers["user-agent"] || "").slice(0, 300)})
+            ${anonymizeIp(req.ip)}, ${String(req.headers["user-agent"] || "").slice(0, 300)})
   `;
   await sql`UPDATE users SET last_login_at = now() WHERE id = ${userId}`;
   setCookie(res, token, SESSION_DAYS * 86400);
@@ -67,6 +68,12 @@ async function startSession(req, res, userId) {
 
 export async function logActivity(userId, action, details = null) {
   await sql`INSERT INTO activity_log (user_id, action, details) VALUES (${userId}, ${action}, ${details})`;
+}
+
+// Durées de conservation (RGPD) : sessions expirées supprimées, journal conservé 12 mois.
+async function purgeExpiredData() {
+  await sql`DELETE FROM sessions WHERE expires_at < now()`;
+  await sql`DELETE FROM activity_log WHERE created_at < now() - interval '12 months'`;
 }
 
 const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role });
@@ -126,10 +133,13 @@ authRouter.post("/register", async (req, res) => {
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Email invalide" });
   const pwError = validatePassword(password);
   if (pwError) return res.status(400).json({ error: pwError });
+  if (req.body?.consent !== true) {
+    return res.status(400).json({ error: "Vous devez accepter la politique de confidentialité" });
+  }
 
   const [user] = await sql`
-    INSERT INTO users (name, email, password_hash)
-    VALUES (${name}, ${email}, ${await hashPassword(password)})
+    INSERT INTO users (name, email, password_hash, privacy_accepted_at)
+    VALUES (${name}, ${email}, ${await hashPassword(password)}, now())
     ON CONFLICT (email) DO NOTHING
     RETURNING id, name, email, role
   `;
@@ -157,6 +167,7 @@ authRouter.post("/login", async (req, res) => {
   if (!user.active) return res.status(403).json({ error: "Ce compte a été désactivé" });
 
   attempts.delete(key);
+  await purgeExpiredData();
   await startSession(req, res, user.id);
   await logActivity(user.id, "connexion");
   res.json({ user: publicUser(user) });
@@ -199,4 +210,55 @@ authRouter.get("/orders", requireUser, async (req, res) => {
     GROUP BY o.id ORDER BY o.created_at DESC
   `;
   res.json(rows);
+});
+
+// ---------- Droits RGPD de l'utilisateur ----------
+
+// Droit d'accès et à la portabilité : toutes les données du compte en JSON.
+authRouter.get("/export", requireUser, async (req, res) => {
+  const [profile] = await sql`
+    SELECT name, email, role, created_at, last_login_at, privacy_accepted_at FROM users WHERE id = ${req.user.id}
+  `;
+  const orders = await sql`
+    SELECT o.id, o.total::float AS total, o.status, o.created_at,
+           COALESCE(json_agg(json_build_object('article', p.name, 'quantite', oi.quantity, 'prix_unitaire', oi.unit_price::float))
+                    FILTER (WHERE oi.id IS NOT NULL), '[]') AS articles
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    LEFT JOIN products p ON p.id = oi.product_id
+    WHERE o.user_id = ${req.user.id}
+    GROUP BY o.id ORDER BY o.created_at
+  `;
+  const sessions = await sql`
+    SELECT created_at, last_seen_at, ip, user_agent FROM sessions WHERE user_id = ${req.user.id} AND expires_at > now()
+  `;
+  const activity = await sql`SELECT action, details, created_at FROM activity_log WHERE user_id = ${req.user.id} ORDER BY created_at`;
+  const [newsletter] = await sql`SELECT created_at FROM newsletter_subscribers WHERE email = ${req.user.email}`;
+  await logActivity(req.user.id, "export des données");
+  res.setHeader("Content-Disposition", 'attachment; filename="mes-donnees-garde-robe.json"');
+  res.json({
+    exporte_le: new Date().toISOString(),
+    profil: profile,
+    newsletter: newsletter ? { inscrit_le: newsletter.created_at } : null,
+    commandes: orders,
+    sessions_actives: sessions,
+    journal_activite: activity,
+  });
+});
+
+// Droit à l'effacement : suppression du compte (confirmée par le mot de passe).
+authRouter.delete("/account", requireUser, async (req, res) => {
+  if (req.user.role === "admin") {
+    return res.status(400).json({ error: "Un administrateur doit être rétrogradé par un autre admin avant suppression" });
+  }
+  const [row] = await sql`SELECT password_hash FROM users WHERE id = ${req.user.id}`;
+  if (!(await verifyPassword(String(req.body?.password ?? ""), row.password_hash))) {
+    return res.status(400).json({ error: "Mot de passe incorrect" });
+  }
+  // Les commandes sont conservées pour les obligations comptables, mais détachées du compte.
+  await sql`DELETE FROM newsletter_subscribers WHERE email = ${req.user.email}`;
+  await sql`DELETE FROM users WHERE id = ${req.user.id}`;
+  await logActivity(null, "compte supprimé par son titulaire");
+  setCookie(res, "", 0);
+  res.json({ ok: true });
 });

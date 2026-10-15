@@ -41,6 +41,6 @@ export const PRODUCTS = CATEGORIES.flatMap((category) =>
     category,
     name: file.replace(/\.jpg$/i, "").trim(),
     price: BASE_PRICES[category] + (index % 4) * 5,
-    image: `/products/${FOLDER_NAMES[category] || category}/${file}`,
+    image: `/products/${FOLDER_NAMES[category] || category}/${file.replace(/\.jpg$/i, ".webp")}`,
   }))
 );

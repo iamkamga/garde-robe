@@ -10,9 +10,12 @@
     "dev:site": "vite",
     "dev:api": "node --watch --env-file-if-exists=.env server/index.js",
     "db:setup": "node --env-file-if-exists=.env server/seed.js",
-    "admin:create": "node --env-file-if-exists=.env server/create-admin.js"
+    "admin:create": "node --env-file-if-exists=.env server/create-admin.js",
+    "test": "node --env-file-if-exists=.env --test --test-reporter=spec \"tests/**/*.test.js\""
   },
   "dependencies": {
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/work-sans": "^5.3.0",
     "@neondatabase/serverless": "^1.2.0",
     "express": "^5.3.0",
     "lucide-react": "^0.383.0",

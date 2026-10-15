@@ -4,6 +4,8 @@ import { CATEGORIES, PRODUCTS as LOCAL_PRODUCTS } from "./data/catalog.js";
 import { useAuth } from "./auth.jsx";
 
 const CART_KEY = "garde-robe-cart";
+// Éco-conception : on n'affiche (et ne télécharge) que 12 articles à la fois.
+const PAGE_SIZE = 12;
 
 // Le panier survit au passage par la page compte (stockage local du navigateur).
 function loadCart() {
@@ -96,7 +98,7 @@ function ProductCard({ product, onAdd, wished, onToggleWish }) {
       <div className="pt-3 flex items-start justify-between gap-2">
         <div>
           <p className="text-sm" style={{ color: INK }}>{product.name}</p>
-          <p className="text-sm mt-0.5" style={{ color: "#8A8578" }}>{product.price} €</p>
+          <p className="text-sm mt-0.5" style={{ color: "#6E6A5F" }}>{product.price} €</p>
         </div>
       </div>
       <button
@@ -123,6 +125,7 @@ export default function App() {
   const [newsletterSent, setNewsletterSent] = useState(false);
   const [newsletterEmail, setNewsletterEmail] = useState("");
   const [newsletterError, setNewsletterError] = useState("");
+  const [newsletterConsent, setNewsletterConsent] = useState(false);
   const [products, setProducts] = useState(LOCAL_PRODUCTS);
   const [ordering, setOrdering] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
@@ -143,11 +146,15 @@ export default function App() {
 
   async function subscribeNewsletter() {
     setNewsletterError("");
+    if (!newsletterConsent) {
+      setNewsletterError("Cochez la case pour accepter de recevoir la newsletter.");
+      return;
+    }
     try {
       const r = await fetch("/api/newsletter", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newsletterEmail }),
+        body: JSON.stringify({ email: newsletterEmail, consent: newsletterConsent }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Erreur");
       setNewsletterSent(true);
@@ -215,6 +222,10 @@ export default function App() {
       return matchCat && matchSearch;
     });
   }, [products, activeCategory, search]);
+
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => setVisibleCount(PAGE_SIZE), [activeCategory, search]);
+  const visible = filtered.slice(0, visibleCount);
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const cartTotal = cart.reduce((s, i) => s + i.qty * i.price, 0);
@@ -299,7 +310,7 @@ export default function App() {
                 className="text-sm whitespace-nowrap pb-1 border-b-2 transition-colors focus:outline-none"
                 style={{
                   borderColor: activeCategory === cat ? INK : "transparent",
-                  color: activeCategory === cat ? INK : "#8A8578",
+                  color: activeCategory === cat ? INK : "#6E6A5F",
                 }}
               >
                 {cat}
@@ -355,25 +366,41 @@ export default function App() {
           <h2 className="font-display text-2xl" style={{ color: INK }}>
             {activeCategory === "Tout" ? "Toute la collection" : activeCategory}
           </h2>
-          <span className="text-sm" style={{ color: "#8A8578" }}>{filtered.length} articles</span>
+          <span className="text-sm" style={{ color: "#6E6A5F" }}>{filtered.length} articles</span>
         </div>
 
         {filtered.length === 0 ? (
-          <p className="text-sm py-12 text-center" style={{ color: "#8A8578" }}>
+          <p className="text-sm py-12 text-center" style={{ color: "#6E6A5F" }}>
             Aucun article ne correspond à votre recherche.
           </p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-5 gap-y-10">
-            {filtered.map((p) => (
-              <ProductCard
-                key={p.id}
-                product={p}
-                onAdd={addToCart}
-                wished={wishlist.has(p.id)}
-                onToggleWish={toggleWish}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-5 gap-y-10">
+              {visible.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onAdd={addToCart}
+                  wished={wishlist.has(p.id)}
+                  onToggleWish={toggleWish}
+                />
+              ))}
+            </div>
+            {visible.length < filtered.length && (
+              <div className="mt-12 text-center">
+                <p className="text-sm mb-4" style={{ color: "#6E6A5F" }}>
+                  {visible.length} articles affichés sur {filtered.length}
+                </p>
+                <button
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  className="text-sm px-8 py-3 border focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  style={{ borderColor: INK, color: INK }}
+                >
+                  Voir plus d'articles
+                </button>
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -382,13 +409,13 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-5 md:px-8 py-14 grid grid-cols-1 md:grid-cols-3 gap-10">
           <div>
             <span className="font-display text-xl" style={{ color: INK }}>Garde-Robe</span>
-            <p className="text-sm mt-3 max-w-xs" style={{ color: "#8A8578" }}>
+            <p className="text-sm mt-3 max-w-xs" style={{ color: "#6E6A5F" }}>
               Une sélection resserrée de vêtements et de chaussures, du berceau au grand soir.
             </p>
           </div>
           <div>
             <p className="text-sm font-medium mb-3" style={{ color: INK }}>Boutique</p>
-            <ul className="space-y-2 text-sm" style={{ color: "#8A8578" }}>
+            <ul className="space-y-2 text-sm" style={{ color: "#6E6A5F" }}>
               {CATEGORIES.map((c) => (
                 <li key={c}>
                   <button onClick={() => setActiveCategory(c)} className="hover:underline">
@@ -400,7 +427,7 @@ export default function App() {
           </div>
           <div>
             <p className="text-sm font-medium mb-3" style={{ color: INK }}>Restez informé</p>
-            <p className="text-sm mb-3" style={{ color: "#8A8578" }}>
+            <p className="text-sm mb-3" style={{ color: "#6E6A5F" }}>
               Les nouveautés, une fois par mois, sans surcharge.
             </p>
             {newsletterSent ? (
@@ -410,6 +437,7 @@ export default function App() {
                 <div className="flex">
                   <input
                     type="email"
+                    aria-label="Votre email"
                     placeholder="Votre email"
                     value={newsletterEmail}
                     onChange={(e) => setNewsletterEmail(e.target.value)}
@@ -424,6 +452,18 @@ export default function App() {
                     Envoyer
                   </button>
                 </div>
+                <label className="flex items-start gap-2 mt-3 text-xs" style={{ color: "#6E6A5F" }}>
+                  <input
+                    type="checkbox"
+                    checked={newsletterConsent}
+                    onChange={(e) => setNewsletterConsent(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    J'accepte de recevoir la newsletter. Désinscription possible à tout moment.{" "}
+                    <a href="#/confidentialite" className="underline">En savoir plus</a>
+                  </span>
+                </label>
                 {newsletterError && (
                   <p className="text-xs mt-2" style={{ color: "#7A2E2E" }}>{newsletterError}</p>
                 )}
@@ -431,8 +471,9 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="max-w-6xl mx-auto px-5 md:px-8 pb-8 text-xs" style={{ color: "#A6A190" }}>
-          © 2026 Garde-Robe.
+        <div className="max-w-6xl mx-auto px-5 md:px-8 pb-8 text-xs" style={{ color: "#6E6A5F" }}>
+          © 2026 Garde-Robe. ·{" "}
+          <a href="#/confidentialite" className="underline">Politique de confidentialité</a>
         </div>
       </footer>
 
@@ -460,7 +501,7 @@ export default function App() {
               )}
               {cart.length === 0 ? (
                 !orderMessage && (
-                  <p className="text-sm" style={{ color: "#8A8578" }}>
+                  <p className="text-sm" style={{ color: "#6E6A5F" }}>
                     Votre panier est vide pour le moment.
                   </p>
                 )
@@ -477,10 +518,10 @@ export default function App() {
                       <div className="flex justify-between">
                         <p className="text-sm" style={{ color: INK }}>{item.name}</p>
                         <button onClick={() => removeFromCart(item.id)} className="focus:outline-none">
-                          <X size={14} color="#8A8578" />
+                          <X size={14} color="#6E6A5F" />
                         </button>
                       </div>
-                      <p className="text-sm mt-0.5" style={{ color: "#8A8578" }}>{item.price} €</p>
+                      <p className="text-sm mt-0.5" style={{ color: "#6E6A5F" }}>{item.price} €</p>
                       <div className="flex items-center gap-3 mt-2">
                         <button
                           onClick={() => updateQty(item.id, -1)}
@@ -507,7 +548,7 @@ export default function App() {
             {cart.length > 0 && (
               <div className="p-5 border-t" style={{ borderColor: "#DEDACF" }}>
                 <div className="flex justify-between text-sm mb-4">
-                  <span style={{ color: "#8A8578" }}>Sous-total</span>
+                  <span style={{ color: "#6E6A5F" }}>Sous-total</span>
                   <span style={{ color: INK }}>{cartTotal} €</span>
                 </div>
                 <button
